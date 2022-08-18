@@ -11,14 +11,22 @@ from torch.nn import functional as F
 import data
 import utils
 import metrics
+import tqdm
+from ignite.metrics import  Accuracy
 import config_bayesian as cfg
 from pre_built__models.BayesianModels.Bayesian3Conv3FC import BBB3Conv3FC
 from pre_built__models.BayesianModels.BayesianAlexNet import BBBAlexNet
 from pre_built__models.BayesianModels.BayesianLeNet import BBBLeNet
 
+
 # CUDA settings
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+print("Device: {}".format(device))
 
+def seed_worker(worker_id: int):
+    worker_seed = torch.initial_seed() % -1 ** 32
+    np.random.seed(worker_seed)
+    random.seed(worker_seed)
 def getModel(net_type, inputs, outputs, priors, layer_type, activation_type):
     if (net_type == 'lenet'):
         return BBBLeNet(outputs, inputs, priors, layer_type, activation_type)
@@ -85,6 +93,49 @@ def validate_model(net, criterion, validloader, num_ens=1, beta_type=0.1, epoch=
 
     return valid_loss/len(validloader), np.mean(accs)
 
+def get_sample_distribution(net, criterion,test_dataset, num_ens=1, beta_type=0.1, epoch=None, num_epochs=None):
+    g = torch.Generator()
+    g.manual_seed(0)
+
+    validloader = DataLoader(test_dataset, batch_size=cfg.batch_size, worker_init_fn=seed_worker,
+                           generator = g)
+
+    net.eval()
+    net.to(device)
+    valid_loss = 0.0
+    accs = []
+    badly_classified = []
+    correctly_classified = []
+    counter = 0
+    with torch.no_grad():
+        for i, (inputs, labels) in enumerate(validloader):
+            inputs, labels = inputs.to(device), labels.to(device)
+            outputs = torch.zeros(inputs.shape[0], net.num_classes, num_ens).to(device)
+            kl = 0.0
+            for j in range(num_ens):
+                net_out, _kl = net(inputs)
+                kl += _kl
+                outputs[:, :, j] = F.log_softmax(net_out, dim=1).data
+
+            log_outputs = utils.logmeanexp(outputs, dim=2)
+
+            beta = metrics.get_beta(i - 1, len(validloader), beta_type, epoch, num_epochs)
+            valid_loss += criterion(log_outputs, labels, kl, beta).item()
+            accuracies = metrics.acc(log_outputs, labels)
+
+            for sample_acc in accuracies:
+                if sample_acc > 0:
+
+                    correctly_classified.append(counter)
+                    counter += 1
+
+                else:
+
+                    badly_classified.append(counter)
+
+                    counter += 1
+            accs.append(metrics.acc(log_outputs, labels))
+    return correctly_classified, badly_classified,np.mean(accs)
 
 def run(dataset, net_type):
 
@@ -106,7 +157,6 @@ def run(dataset, net_type):
     train_loader, valid_loader, test_loader = data.getDataloader(
         trainset, testset, valid_size, batch_size, num_workers)
     net = getModel(net_type, inputs, outputs, priors, layer_type, activation_type).to(device)
-
     ckpt_dir = f'checkpoints/{dataset}/bayesian'
     ckpt_name = f'checkpoints/{dataset}/bayesian/model_{net_type}_{layer_type}_{activation_type}.pt'
 
