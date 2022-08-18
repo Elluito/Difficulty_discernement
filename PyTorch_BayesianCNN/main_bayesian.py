@@ -12,21 +12,23 @@ import data
 import utils
 import metrics
 import tqdm
-from ignite.metrics import  Accuracy
+from ignite.metrics import Accuracy
 import config_bayesian as cfg
 from pre_built__models.BayesianModels.Bayesian3Conv3FC import BBB3Conv3FC
 from pre_built__models.BayesianModels.BayesianAlexNet import BBBAlexNet
 from pre_built__models.BayesianModels.BayesianLeNet import BBBLeNet
 
-
 # CUDA settings
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 print("Device: {}".format(device))
+
 
 def seed_worker(worker_id: int):
     worker_seed = torch.initial_seed() % -1 ** 32
     np.random.seed(worker_seed)
     random.seed(worker_seed)
+
+
 def getModel(net_type, inputs, outputs, priors, layer_type, activation_type):
     if (net_type == 'lenet'):
         return BBBLeNet(outputs, inputs, priors, layer_type, activation_type)
@@ -55,19 +57,19 @@ def train_model(net, optimizer, criterion, trainloader, num_ens=1, beta_type=0.1
             net_out, _kl = net(inputs)
             kl += _kl
             outputs[:, :, j] = F.log_softmax(net_out, dim=1)
-        
+
         kl = kl / num_ens
         kl_list.append(kl.item())
         log_outputs = utils.logmeanexp(outputs, dim=2)
 
-        beta = metrics.get_beta(i-1, len(trainloader), beta_type, epoch, num_epochs)
+        beta = metrics.get_beta(i - 1, len(trainloader), beta_type, epoch, num_epochs)
         loss = criterion(log_outputs, labels, kl, beta)
         loss.backward()
         optimizer.step()
 
         accs.append(metrics.acc(log_outputs.data, labels))
         training_loss += loss.cpu().data.numpy()
-    return training_loss/len(trainloader), np.mean(accs), np.mean(kl_list)
+    return training_loss / len(trainloader), np.mean(accs), np.mean(kl_list)
 
 
 def validate_model(net, criterion, validloader, num_ens=1, beta_type=0.1, epoch=None, num_epochs=None):
@@ -87,18 +89,19 @@ def validate_model(net, criterion, validloader, num_ens=1, beta_type=0.1, epoch=
 
         log_outputs = utils.logmeanexp(outputs, dim=2)
 
-        beta = metrics.get_beta(i-1, len(validloader), beta_type, epoch, num_epochs)
+        beta = metrics.get_beta(i - 1, len(validloader), beta_type, epoch, num_epochs)
         valid_loss += criterion(log_outputs, labels, kl, beta).item()
         accs.append(metrics.acc(log_outputs, labels))
 
-    return valid_loss/len(validloader), np.mean(accs)
+    return valid_loss / len(validloader), np.mean(accs)
 
-def get_sample_distribution(net, criterion,test_dataset, num_ens=1, beta_type=0.1, epoch=None, num_epochs=None):
+
+def get_sample_distribution(net, criterion, test_dataset, num_ens=1, beta_type=0.1, epoch=None, num_epochs=None):
     g = torch.Generator()
     g.manual_seed(0)
 
     validloader = DataLoader(test_dataset, batch_size=cfg.batch_size, worker_init_fn=seed_worker,
-                           generator = g)
+                             generator=g)
 
     net.eval()
     net.to(device)
@@ -106,7 +109,6 @@ def get_sample_distribution(net, criterion,test_dataset, num_ens=1, beta_type=0.
     accs = []
     badly_classified = []
     correctly_classified = []
-    counter = 0
     with torch.no_grad():
         for i, (inputs, labels) in enumerate(validloader):
             inputs, labels = inputs.to(device), labels.to(device)
@@ -122,23 +124,24 @@ def get_sample_distribution(net, criterion,test_dataset, num_ens=1, beta_type=0.
             beta = metrics.get_beta(i - 1, len(validloader), beta_type, epoch, num_epochs)
             valid_loss += criterion(log_outputs, labels, kl, beta).item()
             accuracies = metrics.acc(log_outputs, labels)
-
+            batch_index = 0
             for sample_acc in accuracies:
                 if sample_acc > 0:
 
-                    correctly_classified.append(counter)
-                    counter += 1
+                    correctly_classified.append(inputs[batch_index])
+                    batch_index += 1
 
                 else:
 
-                    badly_classified.append(counter)
+                    badly_classified.append(inputs[batch_index])
 
-                    counter += 1
+                    batch_index += 1
+
             accs.append(metrics.acc(log_outputs, labels))
-    return correctly_classified, badly_classified,np.mean(accs)
+    return correctly_classified, badly_classified, np.mean(accs)
+
 
 def run(dataset, net_type):
-
     # Hyper Parameter settings
     layer_type = cfg.layer_type
     activation_type = cfg.activation_type
@@ -169,12 +172,15 @@ def run(dataset, net_type):
     valid_loss_max = np.Inf
     for epoch in range(n_epochs):  # loop over the dataset multiple times
 
-        train_loss, train_acc, train_kl = train_model(net, optimizer, criterion, train_loader, num_ens=train_ens, beta_type=beta_type, epoch=epoch, num_epochs=n_epochs)
-        valid_loss, valid_acc = validate_model(net, criterion, valid_loader, num_ens=valid_ens, beta_type=beta_type, epoch=epoch, num_epochs=n_epochs)
+        train_loss, train_acc, train_kl = train_model(net, optimizer, criterion, train_loader, num_ens=train_ens,
+                                                      beta_type=beta_type, epoch=epoch, num_epochs=n_epochs)
+        valid_loss, valid_acc = validate_model(net, criterion, valid_loader, num_ens=valid_ens, beta_type=beta_type,
+                                               epoch=epoch, num_epochs=n_epochs)
         lr_sched.step(valid_loss)
 
-        print('Epoch: {} \tTraining Loss: {:.4f} \tTraining Accuracy: {:.4f} \tValidation Loss: {:.4f} \tValidation Accuracy: {:.4f} \ttrain_kl_div: {:.4f}'.format(
-            epoch, train_loss, train_acc, valid_loss, valid_acc, train_kl))
+        print(
+            'Epoch: {} \tTraining Loss: {:.4f} \tTraining Accuracy: {:.4f} \tValidation Loss: {:.4f} \tValidation Accuracy: {:.4f} \ttrain_kl_div: {:.4f}'.format(
+                epoch, train_loss, train_acc, valid_loss, valid_acc, train_kl))
 
         # save model if validation accuracy has increased
         if valid_loss <= valid_loss_max:
@@ -183,8 +189,9 @@ def run(dataset, net_type):
             torch.save(net.state_dict(), ckpt_name)
             valid_loss_max = valid_loss
 
+
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description = "PyTorch Bayesian Model Training")
+    parser = argparse.ArgumentParser(description="PyTorch Bayesian Model Training")
     parser.add_argument('--net_type', default='lenet', type=str, help='model')
     parser.add_argument('--dataset', default='MNIST', type=str, help='dataset = [MNIST/CIFAR10/CIFAR100]')
     args = parser.parse_args()

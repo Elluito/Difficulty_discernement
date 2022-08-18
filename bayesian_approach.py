@@ -35,7 +35,7 @@ def load_model():
     # Load the trained net
     net.load_state_dict(torch.load(ckpt_name))
     # Get the good and badly classified samples
-    goodly_classified,badly_classified = get_sample_distribution(net,criterion=criterion,test_dataset=testset,
+    goodly_classified,badly_classified, accuracy = get_sample_distribution(net,criterion=criterion,test_dataset=trainset,
                                                                  num_ens=10,epoch=cfg.n_epochs,num_epochs=cfg.n_epochs)
 
 
