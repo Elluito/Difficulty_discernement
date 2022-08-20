@@ -12,7 +12,6 @@ import data
 import utils
 import metrics
 import tqdm
-from ignite.metrics import Accuracy
 import config_bayesian as cfg
 from pre_built__models.BayesianModels.Bayesian3Conv3FC import BBB3Conv3FC
 from pre_built__models.BayesianModels.BayesianAlexNet import BBBAlexNet
@@ -29,6 +28,28 @@ def seed_worker(worker_id: int):
     random.seed(worker_seed)
 
 
+def get_uncertainty_per_image(model, input_image, T=15, normalized=False):
+    input_image = input_image.unsqueeze(0)
+    input_images = input_image.repeat(T, 1, 1, 1)
+
+    net_out, _ = model(input_images)
+    pred = torch.mean(net_out, dim=0).cpu().detach().numpy()
+    if normalized:
+        prediction = F.softplus(net_out)
+        p_hat = prediction / torch.sum(prediction, dim=1).unsqueeze(1)
+    else:
+        p_hat = F.softmax(net_out, dim=1)
+    p_hat = p_hat.detach().cpu().numpy()
+    p_bar = np.mean(p_hat, axis=0)
+
+    temp = p_hat - np.expand_dims(p_bar, 0)
+    epistemic = np.dot(temp.T, temp) / T
+    epistemic = np.diag(epistemic)
+
+    aleatoric = np.diag(p_bar) - (np.dot(p_hat.T, p_hat) / T)
+    aleatoric = np.diag(aleatoric)
+
+    return pred, epistemic, aleatoric
 def getModel(net_type, inputs, outputs, priors, layer_type, activation_type):
     if (net_type == 'lenet'):
         return BBBLeNet(outputs, inputs, priors, layer_type, activation_type)
@@ -107,8 +128,9 @@ def get_sample_distribution(net, criterion, test_dataset, num_ens=1, beta_type=0
     net.to(device)
     valid_loss = 0.0
     accs = []
-    badly_classified = []
-    correctly_classified = []
+    badly_classified = {}
+    correctly_classified = {}
+    counter = 0
     with torch.no_grad():
         for i, (inputs, labels) in enumerate(validloader):
             inputs, labels = inputs.to(device), labels.to(device)
@@ -127,14 +149,15 @@ def get_sample_distribution(net, criterion, test_dataset, num_ens=1, beta_type=0
             batch_index = 0
             for sample_acc in accuracies:
                 if sample_acc > 0:
-
-                    correctly_classified.append(inputs[batch_index])
+                    prediction,epistemic,aleatoric = get_uncertainty_per_image(net, inputs[batch_index])
+                    correctly_classified[counter] = epistemic
+                    counter += 1
                     batch_index += 1
 
                 else:
-
-                    badly_classified.append(inputs[batch_index])
-
+                    prediction,epistemic,aleatoric = get_uncertainty_per_image(net, inputs[batch_index])
+                    badly_classified[counter] = epistemic
+                    counter += 1
                     batch_index += 1
 
             accs.append(metrics.acc(log_outputs, labels))

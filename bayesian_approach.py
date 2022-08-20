@@ -1,13 +1,15 @@
-import torch
-
 from PyTorch_BayesianCNN.uncertainty_estimation import get_uncertainty_per_image
 import config_bayesian as cfg
 from PyTorch_BayesianCNN.pre_built__models.BayesianModels.Bayesian3Conv3FC import BBB3Conv3FC
 from PyTorch_BayesianCNN.pre_built__models.BayesianModels.BayesianAlexNet import BBBAlexNet
-from main import get_cifar10,seed_worker
+from main import get_cifar10, seed_worker
 from PyTorch_BayesianCNN.main_bayesian import get_sample_distribution
 import matplotlib.pyplot as plt
-def load_model():
+import torch
+import numpy as np
+
+
+def main():
     # Hyper Parameter settings
     layer_type = cfg.layer_type
     activation_type = cfg.activation_type
@@ -35,10 +37,18 @@ def load_model():
     # Load the trained net
     net.load_state_dict(torch.load(ckpt_name))
     # Get the good and badly classified samples
-    goodly_classified,badly_classified, accuracy = get_sample_distribution(net,criterion=criterion,test_dataset=trainset,
-                                                                 num_ens=10,epoch=cfg.n_epochs,num_epochs=cfg.n_epochs)
-
+    goodly_classified, badly_classified, accuracy = get_sample_distribution(net, criterion=criterion,
+                                                                            test_dataset=trainset,
+                                                                            num_ens=10, epoch=cfg.n_epochs,
+                                                                            num_epochs=cfg.n_epochs)
+    ub = max(np.max(goodly_classified), np.max(badly_classified))
+    lb = min(np.min(goodly_classified), np.min(badly_classified))
+    bins = np.linspace(lb, ub, 100)
+    plt.hist(goodly_classified, bins, alpha=0.5, label="Easy examples")
+    plt.hist(badly_classified, bins, alpha=0.5, label="Hard examples")
+    plt.legend(loc='upper right')
+    plt.show()
 
 
 if __name__ == '__main__':
-
+    main()
