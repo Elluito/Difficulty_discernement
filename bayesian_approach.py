@@ -9,7 +9,7 @@ import torch
 import numpy as np
 
 
-def main():
+def main(dataset,net_type):
     # Hyper Parameter settings
     layer_type = cfg.layer_type
     activation_type = cfg.activation_type
@@ -47,8 +47,8 @@ def main():
     plt.hist(goodly_classified, bins, alpha=0.5, label="Easy examples")
     plt.hist(badly_classified, bins, alpha=0.5, label="Hard examples")
     plt.legend(loc='upper right')
-    plt.show()
+    plt.savefig("experiments/figures/histogram_hard_easy_examples.png")
 
 
 if __name__ == '__main__':
-    main()
+    main("CIFAR10","3conv3fc")
