@@ -29,7 +29,7 @@ def main(dataset,net_type):
         trainset, testset, valid_size, batch_size, num_workers)
     net = getModel(net_type, inputs, outputs, priors, layer_type, activation_type).to(device)
     ckpt_dir = f'checkpoints/{dataset}/bayesian'
-    ckpt_name = f'checkpoints/{dataset}/bayesian/model_{net_type}_{layer_type}_{activation_type}.pt'
+    ckpt_name = f'PyTorch_BayesianCNN/checkpoints/{dataset}/bayesian/model_{net_type}_{layer_type}_{activation_type}.pt'
     criterion = metrics.ELBO(len(trainset)).to(device)
     optimizer = Adam(net.parameters(), lr=lr_start)
     lr_sched = lr_scheduler.ReduceLROnPlateau(optimizer, patience=6, verbose=True)
