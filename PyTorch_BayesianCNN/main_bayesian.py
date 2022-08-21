@@ -6,6 +6,7 @@ import argparse
 import torch
 import numpy as np
 from torch.optim import Adam, lr_scheduler
+from torch.utils.data import DataLoader
 from torch.nn import functional as F
 
 import data
@@ -121,7 +122,7 @@ def get_sample_distribution(net, criterion, test_dataset, num_ens=1, beta_type=0
     g = torch.Generator()
     g.manual_seed(0)
 
-    validloader = DataLoader(test_dataset, batch_size=cfg.batch_size, worker_init_fn=seed_worker,
+    validloader = torch.utils.data.Dataloader(test_dataset, batch_size=cfg.batch_size, worker_init_fn=seed_worker,
                              generator=g)
 
     net.eval()
