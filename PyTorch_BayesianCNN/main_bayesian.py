@@ -122,7 +122,7 @@ def get_sample_distribution(net, criterion, test_dataset, num_ens=1, beta_type=0
     g = torch.Generator()
     g.manual_seed(0)
 
-    validloader = torch.utils.data.Dataloader(test_dataset, batch_size=cfg.batch_size, worker_init_fn=seed_worker,
+    validloader = DataLoader(test_dataset, batch_size=cfg.batch_size, worker_init_fn=seed_worker,
                              generator=g)
 
     net.eval()
@@ -146,7 +146,9 @@ def get_sample_distribution(net, criterion, test_dataset, num_ens=1, beta_type=0
 
             beta = metrics.get_beta(i - 1, len(validloader), beta_type, epoch, num_epochs)
             valid_loss += criterion(log_outputs, labels, kl, beta).item()
-            accuracies = metrics.acc(log_outputs, labels)
+            batch_accuracy = metrics.acc(log_outputs, labels)
+            print(f"batch accuracy: {batch_accuracy}")
+            accuracies = outputs.cpu().numpy().argmax(axis=1) == labels.data.cpu().numpy()
             batch_index = 0
             for sample_acc in accuracies:
                 if sample_acc > 0:
